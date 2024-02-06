@@ -29,7 +29,7 @@ func deriveAddress(redeemScript string) (string, error) {
 	}
 
 	// Create P2SH address
-	address, err := btcutil.NewAddressScriptHash(script, &chaincfg.TestNet3Params)
+	address, err := btcutil.NewAddressScriptHash(script, &chaincfg.RegressionNetParams)
 	if err != nil {
 		return "", err
 	}
@@ -42,7 +42,7 @@ func constructTransaction(address string, amount int64) (*wire.MsgTx, error) {
 	tx := wire.NewMsgTx(wire.TxVersion)
 
 	// Add an output to the transaction
-	addr, err := btcutil.DecodeAddress(address, &chaincfg.TestNet3Params)
+	addr, err := btcutil.DecodeAddress(address, &chaincfg.RegressionNetParams)
 	if err != nil {
 		return nil, err
 	}
@@ -56,31 +56,36 @@ func constructTransaction(address string, amount int64) (*wire.MsgTx, error) {
 	return tx, nil
 }
 
-//func constructSpendingTransaction(previousTx *wire.MsgTx, redeemScript string) (*wire.MsgTx, error) {
-//	// Create a new spending transaction
-//	tx := wire.NewMsgTx(wire.TxVersion)
-//
-//	// Add an input to the transaction
-//	txIn := wire.NewTxIn(&previousTx.TxOut[0].OutPoint, nil, nil)
-//	tx.AddTxIn(txIn)
-//
-//	// Add an output to the transaction
-//	pkScript, err := hex.DecodeString(redeemScript)
-//	if err != nil {
-//		return nil, err
-//	}
-//	txOut := wire.NewTxOut(previousTx.TxOut[0].Value, pkScript)
-//	tx.AddTxOut(txOut)
-//
-//	// Sign the input
-//	sigScript, err := txscript.SignTxOutput(&chaincfg.TestNet3Params, tx, 0, previousTx.TxOut[0].PkScript, txscript.SigHashAll, nil, nil, nil)
-//	if err != nil {
-//		return nil, err
-//	}
-//	tx.TxIn[0].SignatureScript = sigScript
-//
-//	return tx, nil
-//}
+func constructSpendingTransaction(previousTx *wire.MsgTx, redeemScript string) (*wire.MsgTx, error) {
+	// Create a new spending transaction
+	tx := wire.NewMsgTx(wire.TxVersion)
+
+	// Add an input to the transaction with the unlocking script
+	unlockingScript, err := hex.DecodeString(redeemScript)
+	if err != nil {
+		return nil, err
+	}
+	txIn := wire.NewTxIn(&wire.OutPoint{
+		Hash:  previousTx.TxHash(),
+		Index: 0,
+	}, unlockingScript, nil)
+	tx.AddTxIn(txIn)
+
+	// Add an output to the transaction
+	destAddress := "mr6M79HZLa2R9r5KKJrtNK3VpqaiEQ8C2b"
+	destAddr, err := btcutil.DecodeAddress(destAddress, &chaincfg.RegressionNetParams)
+	if err != nil {
+		return nil, err
+	}
+	destPkScript, err := txscript.PayToAddrScript(destAddr)
+	if err != nil {
+		return nil, err
+	}
+	txOut := wire.NewTxOut(previousTx.TxOut[0].Value-1000, destPkScript) // Deduct a small fee
+	tx.AddTxOut(txOut)
+
+	return tx, nil
+}
 
 func main() {
 	// Task 1: Generate the redeem script
@@ -103,15 +108,14 @@ func main() {
 	if err != nil {
 		log.Fatal("Error constructing transaction:", err)
 	}
-
-	// Print the public key script of the first output
-	fmt.Println("Public Key Script of the First Output:", hex.EncodeToString(tx.TxOut[0].PkScript))
+	txHash := tx.TxHash()
+	fmt.Println("Transaction Hash:", txHash)
 
 	// Task 4: Construct another transaction that spends from the previous transaction
-	//spendingTx, err := constructSpendingTransaction(tx, redeemScript)
-	//if err != nil {
-	//	log.Fatal("Error constructing spending transaction:", err)
-	//}
-	//spendingTxHex := hex.EncodeToString(spendingTx.Serialize())
-	//fmt.Println("Spending Transaction Hex:", spendingTxHex)
+	spendingTx, err := constructSpendingTransaction(tx, redeemScript)
+	if err != nil {
+		log.Fatal("Error constructing spending transaction:", err)
+	}
+	spendingTxHash := spendingTx.TxHash()
+	fmt.Println("Spending Transaction Hash:", spendingTxHash)
 }
